@@ -3,6 +3,7 @@ from __future__ import division
 import gensim.models.word2vec as w2v
 from dateutil.parser import parse
 import math as math
+from collections import Counter
 import csv
 import jieba
 import re
@@ -372,23 +373,37 @@ def read_emotion_lexicon():
 def calculate_emotion_scores(scenes,danmu2vec,emotion_lexicon ):
 
     for scene in scenes:
-        emotion_score = {'happy': 0, 'surprise': 0, 'fear': 0, 'sad': 0, 'anger': 0}
+        emotion_score = {'happy': 1, 'surprise': 1, 'fear': 1, 'sad': 1, 'anger': 1}
         print('***************')
         for row in scene:
             print('[s-' + str(row[0]) + ']' + str(row[1]) + ',' + (' ').join([w.encode('utf-8') for w in row[2]]))
 
             for w in row[2]:
+                sentence_emotion_score = {'happy': 0, 'surprise': 0, 'fear': 0, 'sad': 0, 'anger': 0}
                 if w in emotion_lexicon['happy']:
-                    emotion_score['happy'] = emotion_score['happy'] + 1
+                    sentence_emotion_score['happy'] = 1
                 elif w in emotion_lexicon['surprise']:
-                    emotion_score['surprise'] = emotion_score['surprise'] + 1
+                    sentence_emotion_score['surprise'] = 1
                 elif w in emotion_lexicon['fear']:
-                    emotion_score['fear'] = emotion_score['fear'] + 1
+                    sentence_emotion_score['fear'] = 1
                 elif w in emotion_lexicon['sad']:
-                    emotion_score['sad'] = emotion_score['sad'] + 1
+                    sentence_emotion_score['sad'] = 1
                 elif w in emotion_lexicon['anger']:
-                    emotion_score['anger'] = emotion_score['anger'] + 1
+                    sentence_emotion_score['anger'] = 1
+                emotion_score = Counter(emotion_score) + Counter(sentence_emotion_score)
         print(emotion_score)
+        sum = emotion_score['happy'] + emotion_score['surprise'] + emotion_score['fear']+ emotion_score['sad']+emotion_score['anger']
+        entropy = 0
+        max_value = 0
+        for key, value in emotion_score.iteritems():
+            if value > 0:
+                p = value / sum
+                entropy = entropy - p * math.log(p)
+            if value > max_value:
+                max_value = value
+        score = math.log(max_value) / entropy
+        print('[entropy]=' + str(entropy) + '[score]=' + str(score))
+
 
 
 
