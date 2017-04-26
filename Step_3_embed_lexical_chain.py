@@ -4,6 +4,7 @@ import gensim.models.word2vec as w2v
 from dateutil.parser import parse
 import math as math
 from collections import Counter
+from operator import itemgetter
 import csv
 import jieba
 import re
@@ -63,6 +64,7 @@ stop_words = ['啊','吗','，','的','一','不','在','人','有','是','为',
               "呵", "呢", "呜呼", "呜", "呗", "呕", "呃", "呀", "吱", "吧哒", "吧", "吗", "吓", "兮", "儿", "亦", "了", "乎"]
 lexical_chain_dict={}
 concept_dict={}
+avg_frequency = 0
 
 def read_word_embeddings():# read word embedding
     '''
@@ -78,7 +80,7 @@ def read_danmu(file_name):# read danmu data, sorted by elapsed_time
     for index, row in danmu.iterrows():
         danmu.set_value(index, 'text', row['text'].replace('.', '').replace(' ', ''))
         #print(str(row['elapse_time']) + ',' + str(row['text']))
-    #return danmu.head(n=100)
+    #return danmu.head(n=500)
     return danmu
 
 
@@ -108,7 +110,7 @@ def constuct_lexical_chains(danmu,danmu2vec,max_silence,top_n, min_overlap):
     simplified_danmu = []
     for index, row in danmu.iterrows():
 
-        print('s-' + str(count) + '['+str(row['elapse_time']) +']'+ row['text'])
+        #print('s-' + str(count) + '['+str(row['elapse_time']) +']'+ row['text'])
         words = jieba.cut(row['text']) # cut comment into words
         words = list(set(words))
         words = [re.sub(r'(.)\1+', r'\1\1', w) for w in words] # handle 23333, 6666
@@ -125,81 +127,60 @@ def constuct_lexical_chains(danmu,danmu2vec,max_silence,top_n, min_overlap):
 
                 word_list.append(w) # used for simplified_danmu
 
-                if w=='s': print('here1')
                 if w in concept_dict: # if w in concept clusters
-                    if w == 's': print('here2')
                     concept = concept_dict[w]
                     previous_time = danmu.iloc[lexical_chain_dict[concept][-1][-1][1]]['elapse_time']
                     if current_time - previous_time <= max_silence :
 
                         if  current_time >previous_time:
-                            if w == 's': print('here3')
                             lexical_chain_dict[concept][-1].append((w,count))
                         if current_time == previous_time:
-                            if w == 's': print('here4')
                             if lexical_chain_dict[concept][-1][-1][1] < index:
                                 lexical_chain_dict[concept][-1].append((w, count))
                     else:
-                        if w == 's':
-                            print('here5')
-                            print(concept.encode('utf-8'))
                         lexical_chain_dict[concept].append([(w,count)])
-                        if w == 's': print( lexical_chain_dict[concept])
 
                 else:
-                    if w == 's': print('here6')
+
                     if not w in danmu2vec.wv.vocab: # if w is not in word embedding vocabulary
-                        if w == 's': print('here4')
+
                         concept_dict[w] = w
                         lexical_chain_dict[w]=[[(w,count)]]
                     else:
-                        if w == 's': print('here7')
+
                         overlap_dict = {}  # key: concept, value: a list of corresponding words
                         similar_words = danmu2vec.most_similar(w.decode('utf-8'), topn=top_n)
                         for word, similarity in similar_words:
-                            if word == 's':
-                                print('here8')
-                                print(w.encode('utf-8'))
+
                             if word in concept_dict:
                                 if concept_dict[word] in overlap_dict:
-                                    if word == 's': print('here9')
+
                                     overlap_dict[concept_dict[word]].append(word)
                                 else:
-                                    if word == 's': print('here10')
+
                                     overlap_dict[concept_dict[word]] =[word]
-                                if word == 's': print(overlap_dict)
+
                             else: # a new temporal list not sharing anything with existing
 
                                 if w in overlap_dict:
-                                    if word == 's': print('here11')
+
                                     overlap_dict[w].append(word)
                                 else:
-                                    if word == 's': print('here12')
+
                                     overlap_dict[w]=[word]
-                                if word == 's': print(overlap_dict)
+
                         enough_overlap = 0
                         for key,value in overlap_dict.iteritems():
-                            if 's' in value:
-                                print(value)
-                                print('value length=' + str(len(value)))
-                                print('top_n=' + str(top_n))
-                                print('min_overlap=' + str(min_overlap))
+
                             if len(value) / top_n >= min_overlap and key!=w: # if overlap enough, merge into existing concept
-                                if 's' in value: print('here13')
+
                                 enough_overlap = 1
                                 for word in value:
                                     concept_dict[word]=key
-                                    if word=='s' and 's' in concept_dict and concept_dict['s'] !='t':
-                                        print(value)
-                                        print('value length=' + str(len(value)))
-                                        print('top_n=' + str(top_n))
-                                        print('min_overlap=' + str(min_overlap))
-                                        print('word='+word.encode('utf-8'))
-                                        print('key='+key.encode('utf-8'))
+
                                 if w in overlap_dict:
                                     for v in overlap_dict[w]:
-                                        if v == 's': print('here14')
-                                        if v == 's': print(w.encode('utf-8'))
+
                                         concept_dict[v] = key
                                 concept_dict[w] = key
 
@@ -219,8 +200,7 @@ def constuct_lexical_chains(danmu,danmu2vec,max_silence,top_n, min_overlap):
 
                             if w in overlap_dict:
                                 for v in overlap_dict[w]:
-                                    if v == 's': print('here14')
-                                    if v == 's': print(w.encode('utf-8'))
+
                                     concept_dict[v]=w
                             concept_dict[w] = w
                             lexical_chain_dict[w] =[[(w,count)]]
@@ -261,29 +241,25 @@ def similar_words(word,danmu2vec):
         print(similarity)
         print(danmu2vec.wv.vocab[word.decode('utf-8')].count)
 
-def align_comments(simplified_danmu,danmu2vec,scene_length):
+def get_average_word_frequency(danmu2vec):
     # first get default frequency for a word not in vocabulary
     frequencies = []  # used for default frequency of words not in word2vec vocabulary
     for key, value in lexical_chain_dict.iteritems():
         if key in danmu2vec.wv.vocab:
             frequencies.append(danmu2vec.wv.vocab[key.decode('utf-8')].count)
     avg_frequency = sum(frequencies) / len(frequencies)
+    return avg_frequency
 
+
+def align_comments(simplified_danmu,danmu2vec,scene_length,avg_frequency):
     # re-align
     for index, row in enumerate(simplified_danmu): # each comment
-        print(index)
+        #print(index)
         if row[2]:
             chain_score = {} # several chains, each with a score of importance
             for word in row[2]:
-                if word=='s': print(word.encode('utf-8'))
                 concept = concept_dict[word] # find concept of each word
-                if word == 's':
-                    print('found concept!' + concept.encode('utf-8'))
                 chains = lexical_chain_dict[concept] # find corresponding chains of the concept
-                if word == 's':
-                    print('found chains!')
-                if word == 's':
-                    print(chains)
                 found = 0
                 found_chain = []
                 for chain in chains: #  scan each chain
@@ -291,9 +267,6 @@ def align_comments(simplified_danmu,danmu2vec,scene_length):
                         if index==s_id: # if this is the chain where the comment is at
                             found = 1
                             found_chain = chain
-                            if word == 's':
-                                print('found best chains!')
-                                print(found_chain)
                             break
                     if found==1: break
                 if found == 1:
@@ -308,19 +281,16 @@ def align_comments(simplified_danmu,danmu2vec,scene_length):
             max_concept = ''
             max_score = 0
             for key, value in chain_score.iteritems():
-                if key.encode('utf-8') == 's':
-                    print(key.encode('utf-8')+'['+str(value[0])+']')
+
                 if value[0] > max_score:
                     max_concept = key
                     max_score = value[0]
-                if key.encode('utf-8') == 's':
-                    print(chain_score)
-                if key.encode('utf-8') == 's':
-                    print(max_concept.encode('utf-8'))
+
             found_chain = chain_score[max_concept][1] # retrieve the max found_chain
             max_s_id = found_chain[0][1] # retrieve the head(0) sentence_id(1) of the max found_chain
             start_time = danmu.iloc[max_s_id]['elapse_time']
             row[1] = start_time # modifiy time of the comment
+
 
     simplified_danmu.sort(key=lambda x: x[1])
     #for s_d in simplified_danmu:
@@ -330,8 +300,7 @@ def align_comments(simplified_danmu,danmu2vec,scene_length):
 
 
     return simplified_danmu
-    # TODO: calculate emotion score
-    # TODO: calculate topic coherence score
+
     # TODO: calculate intensity
 
 def segment_danmu_to_scenes(scene_length,simplified_danmu):
@@ -370,13 +339,13 @@ def read_emotion_lexicon():
     #print(emotion_lexicon)
     return emotion_lexicon
 
-def calculate_emotion_scores(scenes,danmu2vec,emotion_lexicon ):
-
-    for scene in scenes:
+def calculate_emotion_scores(scenes,emotion_lexicon ):
+    emotion_scores = []
+    for index, scene in enumerate(scenes):
         emotion_score = {'happy': 1, 'surprise': 1, 'fear': 1, 'sad': 1, 'anger': 1}
-        print('***************')
+        #print('*************** scene-'+str(index))
         for row in scene:
-            print('[s-' + str(row[0]) + ']' + str(row[1]) + ',' + (' ').join([w.encode('utf-8') for w in row[2]]))
+            #print('[s-' + str(row[0]) + ']' + str(row[1]) + ',' + (' ').join([w.encode('utf-8') for w in row[2]]))
 
             for w in row[2]:
                 sentence_emotion_score = {'happy': 0, 'surprise': 0, 'fear': 0, 'sad': 0, 'anger': 0}
@@ -391,7 +360,7 @@ def calculate_emotion_scores(scenes,danmu2vec,emotion_lexicon ):
                 elif w in emotion_lexicon['anger']:
                     sentence_emotion_score['anger'] = 1
                 emotion_score = Counter(emotion_score) + Counter(sentence_emotion_score)
-        print(emotion_score)
+        ##print(emotion_score)
         sum = emotion_score['happy'] + emotion_score['surprise'] + emotion_score['fear']+ emotion_score['sad']+emotion_score['anger']
         entropy = 0
         max_value = 0
@@ -402,32 +371,118 @@ def calculate_emotion_scores(scenes,danmu2vec,emotion_lexicon ):
             if value > max_value:
                 max_value = value
         score = math.log(max_value) / entropy
-        print('[entropy]=' + str(entropy) + '[score]=' + str(score))
+        #print('[entropy]=' + str(entropy) + '[score]=' + str(score))
+        emotion_scores.append( score)
+    return emotion_scores
+
+
+def calculate_topic_coherence(scenes,avg_frequency):
+    print('avg frequency=' + str(avg_frequency))
+    topic_scores = []
+    for index,scene in enumerate(scenes):
+        #print('*************** scene-' + str(index))
+        concept_vector = {}
+        for row in scene:
+            if row[2]:
+                for w in row[2]:
+                    concept = concept_dict[w]
+                    if concept in concept_vector:
+                        concept_vector[concept].append(row[0]) # record the sentence id where each concept occurs
+                    else:
+                        concept_vector[concept] = [row[0]]
+
+        sum_concept_num = 0
+        sum_concept_score = 0
+
+        for key, value in concept_vector.iteritems(): # calculate sum number of concepts, sum scores of concepts
+            concept_num =len(list(set(value)))
+            sum_concept_num = sum_concept_num + concept_num
+            idf = 0
+            if key.decode('utf-8') in danmu2vec.wv.vocab:
+                idf = math.log(danmu2vec.wv.vocab[key.decode('utf-8')].count)
+            else:
+                idf = math.log(avg_frequency)
+            concept_score = concept_num / idf
+            sum_concept_score = sum_concept_score + concept_score
+
+            #print(key.encode('utf-8') + '['+ str(concept_num)+'][' + str(concept_score) + ']')
+
+        entropy_num = 0.0  # calculate scene entropy
+        entropy_score = 0.0
+        max_value = 0.0
+        for key, value in concept_vector.iteritems(): # calculate entropy of concepts
+            concept_num = len(list(set(value)))
+            idf = 0
+            if key.decode('utf-8') in danmu2vec.wv.vocab:
+                idf = math.log(danmu2vec.wv.vocab[key.decode('utf-8')].count)
+            else:
+                idf = math.log(avg_frequency)
+            concept_score = concept_num / idf
+            p_num = concept_num / sum_concept_num
+            p_score = concept_score / sum_concept_score
+            entropy_num = entropy_num - p_num * math.log(p_num)
+
+            entropy_score = entropy_score-p_score * math.log(p_score)
+
+            if concept_num > max_value:
+                max_value = concept_num
+
+        #print('[entropy by number]=' + str(entropy_num) + '[entropy by idf]=' + str(entropy_score))
+        if entropy_num>0:
+            score_num = math.log(max_value) / (entropy_num / len(concept_vector))  # calculate score of scene based on concept distribution
+        else:
+            score_num = 0
+        if entropy_score>0:
+            score_score = math.log(max_value) / (entropy_score / len(concept_vector)) # calculate score of scene based on weighted concept distribution
+        else:
+            score_score = 0
+        #print( '[score by number]=' + str(score_num)+'[score by idf]=' + str(score_score))
+        topic_scores.append(score_score)
+
+    return topic_scores
 
 
 
+def generate_highlights(emotion_scores, topic_scores, w1, scene_length, highlights_length):
 
+    num_highlights = highlights_length / scene_length # how many scenes needed for highlights
 
+    max_emotion_score = max(emotion_scores)
+    max_topic_score = max(topic_scores)
+    scene_utilities = []
+    for index, emotion_score in enumerate(emotion_scores):
+        local_utility = w1*emotion_score/max_emotion_score + (1-w1)*topic_scores[index]/max_topic_score
+        scene_utilities.append([index, local_utility])
 
-
-
-
-
-
-
-
+    scene_utilities = sorted(scene_utilities, key=itemgetter(1), reverse=True)
+    print('the number of scene = ' + str(num_highlights))
+    for index, scene in enumerate(scene_utilities):
+        print('*********************************************')
+        for row in scenes[scene[0]]:
+            m, s = divmod(row[1], 60)
+            h, m = divmod(m, 60)
+            print('[s-' + str(row[0]) + ']' + "%d:%02d:%02d" % (h, m, s) + ',' + (' ').join([w.encode('utf-8') for w in row[2]]))
+        print(scene)
 
 
 if __name__ == "__main__":
+    scene_length = 10 # scene length in seconds
+    highlights_length = 494 # required highlight length in seconds
+    w1 = 0.3 # weight of emotion objective
     danmu2vec = read_word_embeddings() # read word embedding
     emotion_lexicon = read_emotion_lexicon() # read emotion lexicon
-    danmu = read_danmu('data/kill_bill_new.csv') # read danmu
+    danmu = read_danmu('data/Dong Fang Bu Bai.csv') # read danmu
+
     simplified_danmu = constuct_lexical_chains(danmu, danmu2vec, 4, 5, 0.5) # construct lexical chain
-    simplified_danmu = align_comments(simplified_danmu, danmu2vec, 15) # align danmu based on lexical chain
-    scenes = segment_danmu_to_scenes(10, simplified_danmu) # segment re-aligned danmu into scenes
-    calculate_emotion_scores(scenes, danmu2vec, emotion_lexicon)
+    avg_frequency = get_average_word_frequency(danmu2vec)
+    simplified_danmu = align_comments(simplified_danmu, danmu2vec, 15,avg_frequency) # align danmu based on lexical chain
+    scenes = segment_danmu_to_scenes(scene_length, simplified_danmu) # segment re-aligned danmu into scenes
+    emotion_scores = calculate_emotion_scores(scenes, emotion_lexicon)
+    topic_scores = calculate_topic_coherence(scenes,avg_frequency)
+    generate_highlights(emotion_scores, topic_scores, w1, scene_length, highlights_length)
 
 
-    #similar_words('s',danmu2vec)
+
+    #similar_words('奥特曼',danmu2vec)
 
 
