@@ -5,12 +5,20 @@ from dateutil.parser import parse
 import math as math
 from collections import Counter
 from operator import itemgetter
+import operator
 import csv
 import jieba
 import re
 import os
 import pandas as pd
 import sys
+from sumy.parsers.plaintext import PlaintextParser #We're choosing a plaintext parser here, other parsers available for HTML etc.
+from sumy.nlp.tokenizers import Tokenizer
+from sumy.summarizers.lex_rank import LexRankSummarizer #We're choosing Lexrank, other algorithms are also built in
+from sumy.summarizers.lsa import LsaSummarizer as LsaSummarizer
+from sumy.summarizers.kl import KLSummarizer as KLSummarizer
+from sumy.summarizers.sum_basic import SumBasicSummarizer as SumBasicSummarizer
+from sumy.summarizers.luhn import LuhnSummarizer as LuhnSummarizer
 
 reload(sys)
 sys.setdefaultencoding('utf8')
@@ -62,25 +70,33 @@ stop_words = ['啊','吗','，','的','一','不','在','人','有','是','为',
               "哟", "哦", "哩", "矣哉", "矣乎", "矣", "焉", "毋宁", "欤",  "嘻", "嘛", "嘘", "嘎登", "嘎", "嗳", "嗯", "嗬", "嗡嗡",
               "嗡", "喽", "喔唷", "喏", "喂", "啷当", "啪达", "啦", "啥", "啐", "啊", "唉", "哼唷", "哼", "咧", "咦", "咚", "咋", "呼哧", "呸",
               "呵", "呢", "呜呼", "呜", "呗", "呕", "呃", "呀", "吱", "吧哒", "吧", "吗", "吓", "兮", "儿", "亦", "了", "乎"]
-lexical_chain_dict={}
-concept_dict={}
-avg_frequency = 0
+
 
 def read_word_embeddings():# read word embedding
     '''
     :return: the trained word vectors
     '''
     danmu2vec = w2v.Word2Vec.load(os.path.join("trained", "thrones2vec.w2v"))
+
     return danmu2vec
 
-def read_danmu(file_name):# read danmu data, sorted by elapsed_time
+def read_danmu(file_name,trail_start,trail_end):# read danmu data, sorted by elapsed_time
     danmu = pd.read_csv(file_name, sep=',')
+    print(file_name)
     danmu = danmu.sort_values(['elapse_time'], ascending=[1])
-    danmu = danmu.reset_index(drop=True) #update index
+
     for index, row in danmu.iterrows():
         danmu.set_value(index, 'text', row['text'].replace('.', '').replace(' ', ''))
-        #print(str(row['elapse_time']) + ',' + str(row['text']))
+        #print(danmu.iloc[index])
+        #print(str(index)+','+str(row['elapse_time']) + ',' + str(row['text']))
+
+    real_end = danmu.elapse_time<=(danmu.iloc[-1]['elapse_time']-trail_end)
+    danmu = danmu[ (danmu.elapse_time >=trail_start) & real_end]
+    #print(danmu.head(n=50))
+
     #return danmu.head(n=500)
+    danmu.drop_duplicates
+    danmu = danmu.reset_index(drop=True)  # update index
     return danmu
 
 
@@ -112,6 +128,7 @@ def constuct_lexical_chains(danmu,danmu2vec,max_silence,top_n, min_overlap):
 
         #print('s-' + str(count) + '['+str(row['elapse_time']) +']'+ row['text'])
         words = jieba.cut(row['text']) # cut comment into words
+
         words = list(set(words))
         words = [re.sub(r'(.)\1+', r'\1\1', w) for w in words] # handle 23333, 6666
         words = [re.sub(r'(哈)\1+', r'\1\1', w) for w in words] # handle repetition
@@ -232,6 +249,7 @@ def constuct_lexical_chains(danmu,danmu2vec,max_silence,top_n, min_overlap):
     '''
     print('****************')
 #    print(concept_dict['s'])
+    #print(simplified_danmu)
     return simplified_danmu
 
 def similar_words(word,danmu2vec):
@@ -298,6 +316,7 @@ def align_comments(simplified_danmu,danmu2vec,scene_length,avg_frequency):
 
 
 
+    #print(simplified_danmu)
 
     return simplified_danmu
 
@@ -318,6 +337,7 @@ def segment_danmu_to_scenes(scene_length,simplified_danmu):
         #print('***************')
         #for row in scene:
             #print('[s-' + str(row[0]) + ']' + str(row[1]) + ',' + (' ').join([w.encode('utf-8') for w in row[2]]))
+    #print(scenes)
     return scenes
 
 def read_emotion_lexicon():
@@ -370,14 +390,15 @@ def calculate_emotion_scores(scenes,emotion_lexicon ):
                 entropy = entropy - p * math.log(p)
             if value > max_value:
                 max_value = value
-        score = math.log(max_value) / entropy
-        #print('[entropy]=' + str(entropy) + '[score]=' + str(score))
+        #score = math.log(max_value) / entropy
+        score = 1 / entropy
         emotion_scores.append( score)
     return emotion_scores
 
 
-def calculate_topic_coherence(scenes,avg_frequency):
+def calculate_topic_coherence(scenes,avg_frequency,emotion_lexicon):
     print('avg frequency=' + str(avg_frequency))
+    all_concept_chains = []
     topic_scores = []
     for index,scene in enumerate(scenes):
         #print('*************** scene-' + str(index))
@@ -385,12 +406,13 @@ def calculate_topic_coherence(scenes,avg_frequency):
         for row in scene:
             if row[2]:
                 for w in row[2]:
-                    concept = concept_dict[w]
-                    if concept in concept_vector:
-                        concept_vector[concept].append(row[0]) # record the sentence id where each concept occurs
-                    else:
-                        concept_vector[concept] = [row[0]]
-
+                    if not w in emotion_lexicon['anger'] and not w in emotion_lexicon['sad'] and not w in emotion_lexicon['fear'] and not w in emotion_lexicon['surprise'] and not w in emotion_lexicon['happy']:
+                        concept = concept_dict[w]
+                        if concept in concept_vector:
+                            concept_vector[concept].append(row[0]) # record the sentence id where each concept occurs
+                        else:
+                            concept_vector[concept] = [row[0]]
+        all_concept_chains.append(concept_vector)
         sum_concept_num = 0
         sum_concept_score = 0
 
@@ -429,57 +451,241 @@ def calculate_topic_coherence(scenes,avg_frequency):
 
         #print('[entropy by number]=' + str(entropy_num) + '[entropy by idf]=' + str(entropy_score))
         if entropy_num>0:
-            score_num = math.log(max_value) / (entropy_num / len(concept_vector))  # calculate score of scene based on concept distribution
+            #score_num = math.log(max_value) / (entropy_num / len(concept_vector))  # calculate score of scene based on concept distribution
+            score_num = math.log(max_value) / (entropy_num )
         else:
             score_num = 0
         if entropy_score>0:
-            score_score = math.log(max_value) / (entropy_score / len(concept_vector)) # calculate score of scene based on weighted concept distribution
+            #score_score = math.log(max_value) / (entropy_score / len(concept_vector)) # calculate score of scene based on weighted concept distribution
+            #score_score = math.log(max_value) / (entropy_score )  # calculate score of scene based on weighted concept distribution
+            score_score = 1/ (entropy_score)
         else:
             score_score = 0
         #print( '[score by number]=' + str(score_num)+'[score by idf]=' + str(score_score))
         topic_scores.append(score_score)
 
-    return topic_scores
+    return topic_scores,all_concept_chains
+
+def calculate_topic_coherence_by_sentence(scenes,avg_frequency,emotion_lexicon):
+    a = 1
+
+
+def generate_highlights(file_name,scenes,emotion_scores, topic_scores, all_concept_chains,w1, scene_length, num_highlights,danmu,compression_rate,avg_frequency):
 
 
 
-def generate_highlights(emotion_scores, topic_scores, w1, scene_length, highlights_length):
-
-    num_highlights = highlights_length / scene_length # how many scenes needed for highlights
-
+    #num_highlights = math.ceil(highlights_length / scene_length) # how many scenes needed for highlights
+    content_alpha = 0
     max_emotion_score = max(emotion_scores)
     max_topic_score = max(topic_scores)
     scene_utilities = []
+    scene_lengths = [len(scene) for scene in scenes]
     for index, emotion_score in enumerate(emotion_scores):
         local_utility = w1*emotion_score/max_emotion_score + (1-w1)*topic_scores[index]/max_topic_score
+        # a test feature to consider the entire burst of scene after re-alighment
+        #local_utility = (local_utility+1) * len(scenes[index])
+        #local_utility = local_utility + len(scenes[index])
+        #local_utility = content_alpha*local_utility + (1-content_alpha)*len(scenes[index])/max(scene_lengths)
+        if len(scenes[index])>0:
+            local_utility = local_utility * math.log(len(scenes[index]))
+        else:
+            local_utility = 0
         scene_utilities.append([index, local_utility])
 
     scene_utilities = sorted(scene_utilities, key=itemgetter(1), reverse=True)
-    print('the number of scene = ' + str(num_highlights))
+    print('the number of highlighted scenes = ' + str(num_highlights))
+    highlights = []
     for index, scene in enumerate(scene_utilities):
+        if index == num_highlights: break
         print('*********************************************')
+        start_time= int(scene[0])*scene_length
+        end_time = int(scene[0])*scene_length + (scene_length)
+        highlights.append([start_time,end_time])
+
         for row in scenes[scene[0]]:
             m, s = divmod(row[1], 60)
             h, m = divmod(m, 60)
             print('[s-' + str(row[0]) + ']' + "%d:%02d:%02d" % (h, m, s) + ',' + (' ').join([w.encode('utf-8') for w in row[2]]))
         print(scene)
+        # now print the concept chain info
+        #for key, value in all_concept_chains[scene[0]].iteritems():
+            #print(key.encode('utf-8') + (' ').join([str(s_id) for s_id in value]))
+
+        # our method summary
+        generate_scene_summary(scene, danmu,compression_rate,avg_frequency)
+
+        # benchmark summary
+        sentences_string = ''
+        for row in scenes[scene[0]]:
+            if row[2]:
+                sentences_string = sentences_string + (' ').join([w.encode('utf-8') for w in row[2]]) + '.'
+        print(sentences_string)
+        summary_benchmarks(sentences_string)
+
+    print(highlights)
+
+    # write candidate highlights to file
+    with open('data/candidate_summary/' + file_name, 'wb') as file:
+        for h in highlights:
+            file.write(str(h[0]) + ',' + str(h[1]))
+            file.write('\n')
+    return highlights
+
+def generate_scene_summary(scene_utility,danmu,compression_rate,avg_frequency):
+
+
+    # calculate the concept distributions of each scene
+    concept_vector = {}
+    concept_sentence = {}
+    for row in scenes[scene_utility[0]]: # for each sentence in the scene
+        print(danmu.iloc[row[0]]['text'].encode('utf-8'))
+        for w in sorted(row[2]): # for each word
+            if w.isdigit() and (is_date(w) or not ('233' in w or '66' in w)): break
+            if w:
+                if w in emotion_lexicon['happy']:
+                    concept = '哈哈'
+                elif w in emotion_lexicon['surprise']:
+                    concept = '卧槽'
+                elif w in emotion_lexicon['fear']:
+                    concept = '可怕'
+                elif w in emotion_lexicon['sad']:
+                    concept = '泪目'
+                elif w in emotion_lexicon['anger']:
+                    concept = '气死了'
+                else:
+                    concept = concept_dict[w]
+                if concept in concept_vector:
+                    concept_vector[concept].append(row[0]) # record the sentence id where each concept occurs
+                else:
+                    concept_vector[concept] = [row[0]]
+                # another dict used for accessing concept by sentence_id
+                if row[0] in concept_sentence: # row[0] is sentence id
+                    concept_sentence[row[0]].append(concept)
+                else:
+                    concept_sentence[row[0]] = [concept]
+
+
+    for key, value in concept_vector.iteritems(): # print concept chains
+        print(key.encode('utf-8') + (' ').join([str(s_id) for s_id in value]))
+
+    concept_importances = {}
+    for key, value in concept_vector.iteritems():
+        if key.decode('utf-8') in danmu2vec.wv.vocab:
+            concept_idf = math.log(danmu2vec.wv.vocab[key.decode('utf-8')].count)
+        else:
+            concept_idf = math.log(avg_frequency)
+        #concept_importance = len(list(set(value))) / concept_idf
+        concept_importance = len(list(set(value)))
+        concept_importances[key]=concept_importance
+    # sort concept by importance
+    sorted_concept_importances = sorted(concept_importances.items(), key=operator.itemgetter(1),reverse=True)
+
+
+
+    print('----------summary---------------')
+    #print('[' + sorted_concept_importances[0][0].encode('utf-8') + ']['+str(previous_value[0]) +']'+danmu.iloc[previous_value[0]]['text'].encode('utf-8'))
+    previous_value = concept_vector[sorted_concept_importances[0][0]] # the sentence list for 1st concept
+    valid_concepts = [sorted_concept_importances[0][0]]
+    count = 0
+    for concept,importance in sorted_concept_importances:
+        if count>0:
+            concept_vector[concept] = list(set(concept_vector[concept])-set(previous_value))
+            previous_value = list(set(previous_value) |  set(concept_vector[concept]))
+            if concept_vector[concept]:
+                 valid_concepts.append(concept)
+                 #print('[' + concept.encode('utf-8') + ']['+str(concept_vector[concept][0]) +']'+danmu.iloc[concept_vector[concept][0]]['text'].encode('utf-8'))
+
+        count += 1
+    #print(concept_sentence)
+    for index,concept in enumerate(valid_concepts):
+        s_ids= list(set(concept_vector[concept])) # all sentences of this concept
+        sentence_scores = {}
+        for s_id in s_ids: # for each sentence
+            score = 0
+            #print('[s_id]='+str(s_id))
+
+            for c in list(set(concept_sentence[s_id])):
+                # print(concept_sentence[s_id])
+                if c in danmu2vec.wv.vocab:
+                    concept_idf = math.log(danmu2vec.wv.vocab[c.decode('utf-8')].count)
+                else:
+                    concept_idf = math.log(avg_frequency)
+                score = score + len(list(set(concept_vector[c])))*concept_idf
+
+
+            sentence_scores[s_id] = score / len(list(set(concept_sentence[s_id])))
+            #sentence_scores[s_id] = score
+        sentence_scores = sorted(sentence_scores.items(), key=operator.itemgetter(1), reverse=True)
+        best_s_id = sentence_scores[0][0]
+        print('[' + concept.encode('utf-8') + ']['+str(best_s_id) +']'+danmu.iloc[best_s_id]['text'].encode('utf-8'))
+        if index / len(valid_concepts) >= compression_rate:
+            break
+
+def summary_benchmarks(sentences_string):
+    '''
+    :param sentences_string: all sentences as one string, has been tokenized
+    :return:
+    '''
+    parser = PlaintextParser.from_string(sentences_string, Tokenizer("english"))
+    print('=========== Basic Sum ============')
+    summarizer = SumBasicSummarizer()
+    summary = summarizer(parser.document, 3)  # Summarize the document with 5 sentences
+    for sentence in summary:
+        print sentence
+
+    print('=========== LSA ============')
+    summarizer = LsaSummarizer()
+    summary = summarizer(parser.document, 3)  # Summarize the document with 5 sentences
+    for sentence in summary:
+        print sentence
+
+    print('===========LexRank============')
+    summarizer = LexRankSummarizer()
+    summary = summarizer(parser.document, 3)  # Summarize the document with 5 sentences
+    for sentence in summary:
+        print sentence
+
+    print('===========KL Divergence============')
+    summarizer = KLSummarizer()
+    summary = summarizer(parser.document, 3)  # Summarize the document with 5 sentences
+    for sentence in summary:
+        print sentence
+
+    print('===========Luhn============')
+    summarizer = LuhnSummarizer()
+    summary = summarizer(parser.document, 3)  # Summarize the document with 5 sentences
+    for sentence in summary:
+        print sentence
 
 
 if __name__ == "__main__":
-    scene_length = 10 # scene length in seconds
-    highlights_length = 494 # required highlight length in seconds
-    w1 = 0.3 # weight of emotion objective
-    danmu2vec = read_word_embeddings() # read word embedding
-    emotion_lexicon = read_emotion_lexicon() # read emotion lexicon
-    danmu = read_danmu('data/Dong Fang Bu Bai.csv') # read danmu
+    scene_length = 15  # scene length in seconds
+    #num_highlights = [326,429,1130,329,813,617,747,700,642,633]
+    num_highlights = [33,33, 19, 33, 19, 20, 17, 17, 32, 22, 22]
+    w1 = 0.9  # weight of emotion objective
+    trail_start = 100 # length of begin and end to be excluded
+    trail_end = 100
+    count = 0
+    danmu2vec = read_word_embeddings()  # read word embedding
+    emotion_lexicon = read_emotion_lexicon()  # read emotion lexicon
+    compression_rate = 0.2
+    for file_name in os.listdir('data/danmu/'):
+        lexical_chain_dict = {}
+        concept_dict = {}
+        avg_frequency = 0
+        num_highlight = num_highlights[count]  # required highlight length in seconds
+        #file_name = 'zhong guo he huo ren'
+        danmu = read_danmu('data/danmu/' + file_name ,trail_start,trail_end) # read danmu
+        # danmu,danmu2vec,max_silence,top_n, min_overlap
+        simplified_danmu = constuct_lexical_chains(danmu, danmu2vec, 7, 10, 0.5) # construct lexical chain
+        avg_frequency = get_average_word_frequency(danmu2vec)
+        simplified_danmu = align_comments(simplified_danmu, danmu2vec, scene_length,avg_frequency) # align danmu based on lexical chain
+        scenes = segment_danmu_to_scenes(scene_length, simplified_danmu) # segment re-aligned danmu into scenes
+        emotion_scores = calculate_emotion_scores(scenes, emotion_lexicon)
+        topic_scores,all_concept_chains = calculate_topic_coherence(scenes,avg_frequency, emotion_lexicon)
+        generate_highlights(file_name,scenes,emotion_scores, topic_scores, all_concept_chains,w1, scene_length, num_highlight,danmu,compression_rate,avg_frequency)
 
-    simplified_danmu = constuct_lexical_chains(danmu, danmu2vec, 4, 5, 0.5) # construct lexical chain
-    avg_frequency = get_average_word_frequency(danmu2vec)
-    simplified_danmu = align_comments(simplified_danmu, danmu2vec, 15,avg_frequency) # align danmu based on lexical chain
-    scenes = segment_danmu_to_scenes(scene_length, simplified_danmu) # segment re-aligned danmu into scenes
-    emotion_scores = calculate_emotion_scores(scenes, emotion_lexicon)
-    topic_scores = calculate_topic_coherence(scenes,avg_frequency)
-    generate_highlights(emotion_scores, topic_scores, w1, scene_length, highlights_length)
+        count += 1
 
 
 
