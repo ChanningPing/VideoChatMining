@@ -5,6 +5,7 @@ from dateutil.parser import parse
 import math as math
 from collections import Counter
 from operator import itemgetter
+import pickle
 import operator
 import csv
 import jieba
@@ -113,7 +114,7 @@ def is_date(string): # test if a string is a date
         return False
 
 
-def constuct_lexical_chains(danmu,danmu2vec,max_silence,top_n, min_overlap):
+def constuct_lexical_chains(danmu,danmu2vec,max_silence,top_n, min_overlap,filename):
     '''
     :param danmu: raw danmu data in pandas frame
     :param danmu2vec: word embeddings pre-trained
@@ -247,10 +248,17 @@ def constuct_lexical_chains(danmu,danmu2vec,max_silence,top_n, min_overlap):
     for s_d in simplified_danmu:
         print(str(s_d[0])+','+(' ').join([w.encode('utf-8') for w in s_d[1]]))
     '''
-    print('****************')
+    print('**************** save the concept dict')
+    save_obj(concept_dict, filename+'_concept_dict')
 #    print(concept_dict['s'])
     #print(simplified_danmu)
+
     return simplified_danmu
+
+def save_obj(obj, name ):
+    with open('obj/'+ name + '.pkl', 'wb') as f:
+        pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
+
 
 def similar_words(word,danmu2vec):
     similar_words = danmu2vec.most_similar(word.decode('utf-8'), topn=10)
@@ -495,6 +503,8 @@ def generate_highlights(file_name,scenes,emotion_scores, topic_scores, all_conce
     scene_utilities = sorted(scene_utilities, key=itemgetter(1), reverse=True)
     print('the number of highlighted scenes = ' + str(num_highlights))
     highlights = []
+
+
     for index, scene in enumerate(scene_utilities):
         if index == num_highlights: break
         print('*********************************************')
@@ -502,25 +512,44 @@ def generate_highlights(file_name,scenes,emotion_scores, topic_scores, all_conce
         end_time = int(scene[0])*scene_length + (scene_length)
         highlights.append([start_time,end_time])
 
-        for row in scenes[scene[0]]:
-            m, s = divmod(row[1], 60)
-            h, m = divmod(m, 60)
-            print('[s-' + str(row[0]) + ']' + "%d:%02d:%02d" % (h, m, s) + ',' + (' ').join([w.encode('utf-8') for w in row[2]]))
-        print(scene)
+        # TODO: write highlight scene text to file, words already tokenized
+        with open('data/text_summary/' + file_name + '_scene_' + str(scene[0]) + '.txt', 'wb') as file:
+            for row in scenes[scene[0]]:
+                m, s = divmod(row[1], 60)
+                h, m = divmod(m, 60)
+                print('[s-' + str(row[0]) + ']' + "%d:%02d:%02d" % (h, m, s) + ',' + (' ').join(
+                    [w.encode('utf-8') for w in row[2]]))
+                text = danmu.iloc[row[0]]['text']
+                words = jieba.cut(text)  # cut comment into words
+                file.write((' ').join([w.encode('utf-8') for w in words])+'.\n')
+            print(scene)
+        file.close()
+
+
+
+
+
+
+
+
         # now print the concept chain info
         #for key, value in all_concept_chains[scene[0]].iteritems():
             #print(key.encode('utf-8') + (' ').join([str(s_id) for s_id in value]))
 
         # our method summary
-        generate_scene_summary(scene, danmu,compression_rate,avg_frequency)
+        #generate_scene_summary(scene, danmu,compression_rate,avg_frequency)
 
         # benchmark summary
+        '''
+
         sentences_string = ''
         for row in scenes[scene[0]]:
             if row[2]:
                 sentences_string = sentences_string + (' ').join([w.encode('utf-8') for w in row[2]]) + '.'
         print(sentences_string)
         #summary_benchmarks(sentences_string)
+        '''
+
 
     print(highlights)
 
@@ -700,7 +729,7 @@ if __name__ == "__main__":
         #file_name = 'zhong guo he huo ren'
         danmu = read_danmu('data/danmu/' + file_name ,trail_start,trail_end) # read danmu
         # danmu,danmu2vec,max_silence,top_n, min_overlap
-        simplified_danmu = constuct_lexical_chains(danmu, danmu2vec, 7, 10, 0.5) # construct lexical chain
+        simplified_danmu = constuct_lexical_chains(danmu, danmu2vec, 7, 10, 0.5,file_name) # construct lexical chain
         avg_frequency = get_average_word_frequency(danmu2vec)
         simplified_danmu = align_comments(simplified_danmu, danmu2vec, scene_length,avg_frequency) # align danmu based on lexical chain
         scenes = segment_danmu_to_scenes(scene_length, simplified_danmu) # segment re-aligned danmu into scenes
