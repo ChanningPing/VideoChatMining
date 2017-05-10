@@ -133,7 +133,7 @@ def constuct_lexical_chains(danmu,danmu2vec,max_silence,top_n, min_overlap):
         words = [re.sub(r'(.)\1+', r'\1\1', w) for w in words] # handle 23333, 6666
         words = [re.sub(r'(哈)\1+', r'\1\1', w) for w in words] # handle repetition
         words = [re.sub(r'(啊)\1+', r'\1\1', w) for w in words] # handle repetition
-        words = [re.sub(ur"[\s+\.\!\/_,$%^*(+\"\']+|[+——！，。？?、~@#￥%……&*（）：；《）《》“”()»〔〕-]+", "", w.decode("utf8")) for w in words]
+        words = [re.sub(ur"[\s+\.\!\/_,$%^*(+\"\']+|[+——！，。？?、~@#￥%……&*（）:：；《）《》“”()»〔〕-]+", "", w.decode("utf8")) for w in words]
 
         current_time = float(row['elapse_time'])
         word_list = []
@@ -520,7 +520,7 @@ def generate_highlights(file_name,scenes,emotion_scores, topic_scores, all_conce
             if row[2]:
                 sentences_string = sentences_string + (' ').join([w.encode('utf-8') for w in row[2]]) + '.'
         print(sentences_string)
-        summary_benchmarks(sentences_string)
+        #summary_benchmarks(sentences_string)
 
     print(highlights)
 
@@ -539,8 +539,23 @@ def generate_scene_summary(scene_utility,danmu,compression_rate,avg_frequency):
     concept_sentence = {}
     for row in scenes[scene_utility[0]]: # for each sentence in the scene
         print(danmu.iloc[row[0]]['text'].encode('utf-8'))
-        for w in sorted(row[2]): # for each word
-            if w.isdigit() and (is_date(w) or not ('233' in w or '66' in w)): break
+
+        words = jieba.cut(danmu.iloc[row[0]]['text'])  # cut comment into words
+
+        words = list(set(words))
+        words = [re.sub(r'(.)\1+', r'\1\1', w) for w in words]  # handle 23333, 6666
+        words = [re.sub(r'(哈)\1+', r'\1\1', w) for w in words]  # handle repetition
+        words = [re.sub(r'(啊)\1+', r'\1\1', w) for w in words]  # handle repetition
+        words = [re.sub(ur"[\s+\.\!\/_,$%^*(+\"\']+|[+——！，。？?、~@#￥%……&*（）:：；《）《》“”()»〔〕-]+", "", w.decode("utf8")) for w
+                 in words]
+        words = [w for w in words if not w in stop_words]
+
+        for w in sorted(words): # for each word
+            #print(w.encode('utf-8'))
+            #if w=='20170404':print(str(is_date(w))+'%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%'+str(w.isdigit()))
+            if w.isdigit() and (is_date(w) or not ('233' in w or '66' in w)):
+                break
+
             if w:
                 if w in emotion_lexicon['happy']:
                     concept = '哈哈'
@@ -577,25 +592,31 @@ def generate_scene_summary(scene_utility,danmu,compression_rate,avg_frequency):
         #concept_importance = len(list(set(value))) / concept_idf
         concept_importance = len(list(set(value)))
         concept_importances[key]=concept_importance
+
+
+
     # sort concept by importance
+
+
     sorted_concept_importances = sorted(concept_importances.items(), key=operator.itemgetter(1),reverse=True)
 
 
 
     print('----------summary---------------')
-    #print('[' + sorted_concept_importances[0][0].encode('utf-8') + ']['+str(previous_value[0]) +']'+danmu.iloc[previous_value[0]]['text'].encode('utf-8'))
-    previous_value = concept_vector[sorted_concept_importances[0][0]] # the sentence list for 1st concept
-    valid_concepts = [sorted_concept_importances[0][0]]
-    count = 0
-    for concept,importance in sorted_concept_importances:
-        if count>0:
-            concept_vector[concept] = list(set(concept_vector[concept])-set(previous_value))
-            previous_value = list(set(previous_value) |  set(concept_vector[concept]))
-            if concept_vector[concept]:
-                 valid_concepts.append(concept)
-                 #print('[' + concept.encode('utf-8') + ']['+str(concept_vector[concept][0]) +']'+danmu.iloc[concept_vector[concept][0]]['text'].encode('utf-8'))
 
-        count += 1
+    # use previous sentence set subtract later sentence set of concept
+    valid_concepts = []
+    intersection = []
+    for index, concept_importance in enumerate(sorted_concept_importances):
+        original_vector = list(concept_vector[concept_importance[0]])
+        concept_vector[concept_importance[0]] = list(set(concept_vector[concept_importance[0]])-set(intersection))
+        intersection = list(set(intersection) | set(original_vector))
+        if concept_vector[concept_importance[0]]:
+            valid_concepts.append(concept_importance[0])
+
+
+
+
     #print(concept_sentence)
     for index,concept in enumerate(valid_concepts):
         s_ids= list(set(concept_vector[concept])) # all sentences of this concept
@@ -611,14 +632,16 @@ def generate_scene_summary(scene_utility,danmu,compression_rate,avg_frequency):
                 else:
                     concept_idf = math.log(avg_frequency)
                 score = score + len(list(set(concept_vector[c])))*concept_idf
+                #score = score + len(list(set(concept_vector[c])))
 
-
-            sentence_scores[s_id] = score / len(list(set(concept_sentence[s_id])))
+            # score is the total score excluding the key concept, and use 1 as a low estimate
+            sentence_scores[s_id] = score/ len(list(set(concept_sentence[s_id])))
             #sentence_scores[s_id] = score
         sentence_scores = sorted(sentence_scores.items(), key=operator.itemgetter(1), reverse=True)
         best_s_id = sentence_scores[0][0]
-        print('[' + concept.encode('utf-8') + ']['+str(best_s_id) +']'+danmu.iloc[best_s_id]['text'].encode('utf-8'))
-        if index / len(valid_concepts) >= compression_rate:
+        print('[' + concept.encode('utf-8') + ']['+str(best_s_id) +']'+ ']['+str(sentence_scores[0][1]) +']'+danmu.iloc[best_s_id]['text'].encode('utf-8'))
+        #if index / len(valid_concepts) >= compression_rate:
+        if index==3:
             break
 
 def summary_benchmarks(sentences_string):

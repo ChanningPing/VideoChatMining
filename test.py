@@ -10,6 +10,9 @@ from sumy.summarizers.luhn import LuhnSummarizer as LuhnSummarizer
 import jieba
 
 import re
+import sys
+reload(sys)
+sys.setdefaultencoding('utf8')
 
 
 
@@ -26,8 +29,9 @@ with open("data/test_useless/test.txt") as f:
 
 file = "data/test_useless/test.txt" #name of the plain-text file
 parser = PlaintextParser.from_file(file, Tokenizer("english"))
-sentences = '幸运 何其 不幸.菊仙 心疼.世间 程蝶衣.娥 郎 男儿 女娇 我本.AD17430 郎 男儿 我本.娥 郎 男儿 女娇 我本.娥 郎 男儿 女娇 我本.娥 郎 男儿 女娇 我本.一个 哭 医院 输液.泪目.哭.一周 目 泪目 后半段 心疼.死 哭.泪目.一死 终有 虞姬.致敬.第二次.清明.三周 目.死.:.:.真虞姬 假 霸王.张国荣 先生 永远 怀念.程蝶衣 张国荣.张国荣.致敬 张国荣.世间 无虞 姬.娥 程蝶衣 我本 郎 世间 男儿 女娇.'
-parser = PlaintextParser.from_string(sentences, Tokenizer("english"))
+sentences = '幸何其不幸. 菊仙心疼. 世间程蝶衣.  娥 郎 男儿 女娇 我本. 郎 男儿 我本.'.decode('utf-8')
+#parser = PlaintextParser.from_string(sentences, Tokenizer("english"))
+print(parser.document)
 
 print('=========== Basic Sum ============')
 summarizer = SumBasicSummarizer()
@@ -47,9 +51,6 @@ summarizer = LexRankSummarizer()
 summary = summarizer(parser.document, 3) #Summarize the document with 5 sentences
 for sentence in summary:
     print sentence
-
-
-
 
 print('===========KL Divergence============')
 summarizer = KLSummarizer()
