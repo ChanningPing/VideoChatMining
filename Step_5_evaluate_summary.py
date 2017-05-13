@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from __future__ import division
 import os
 import csv
 import sys
@@ -7,6 +8,15 @@ import pickle
 import gensim.models.word2vec as w2v
 from dateutil.parser import parse
 import operator
+
+from sumy.parsers.plaintext import PlaintextParser #We're choosing a plaintext parser here, other parsers available for HTML etc.
+from sumy.nlp.tokenizers import Tokenizer
+from sumy.summarizers.lex_rank import LexRankSummarizer #We're choosing Lexrank, other algorithms are also built in
+from sumy.summarizers.lsa import LsaSummarizer as LsaSummarizer
+from sumy.summarizers.kl import KLSummarizer as KLSummarizer
+from sumy.summarizers.sum_basic import SumBasicSummarizer as SumBasicSummarizer
+from sumy.summarizers.luhn import LuhnSummarizer as LuhnSummarizer
+
 import math
 reload(sys)
 sys.setdefaultencoding('utf8')
@@ -110,7 +120,32 @@ def read_scene_data(scene_dir,emotion_lexicon,danmu2vec):
         print('-----------------------'+filename) # print movie name
         with open(os.path.join(scene_dir, filename)) as csvfile:  # read a scene
             scene_sentences = list(csv.reader(csvfile))
-            generate_our_summary(filename, scene_sentences, emotion_lexicon, danmu2vec)
+            #generate_our_summary(filename, scene_sentences, emotion_lexicon, danmu2vec)
+            generate_embedding_lexical_chain_summary(filename, scene_sentences, emotion_lexicon)
+            generate_benchmark_summary(filename)
+
+def generate_evaluation(file_name, emotion_lexicon):
+    scene_summary_dict = {}
+    scene_dir = 'data/text_summary/'
+    with open(file_name, "rb") as f:
+        reader = csv.reader(f, delimiter=",")
+        for i, line in enumerate(reader):
+            if line[0] in scene_summary_dict:
+                scene_summary_dict[line[0]].append(line[1])
+            else:
+
+                scene_summary_dict[line[0]] = [line[1]]
+    for movie_scene, sentences in scene_summary_dict.iteritems():
+        print('=================' + movie_scene + '===================')
+        with open(os.path.join(scene_dir, movie_scene + '.txt')) as csvfile:  # read a scene
+            scene_sentences = list(csv.reader(csvfile))
+            #generate_our_summary(filename, scene_sentences, emotion_lexicon, danmu2vec)
+            num_summary = len(sentences)
+            generate_embedding_lexical_chain_summary(movie_scene, scene_sentences, emotion_lexicon,num_summary)
+            generate_benchmark_summary(movie_scene,num_summary)
+
+
+
 
 
 def generate_our_summary(filename,scene_sentences,emotion_lexicon,danmu2vec):
@@ -142,8 +177,10 @@ def generate_our_summary(filename,scene_sentences,emotion_lexicon,danmu2vec):
                     concept = '泪目'
                 elif w in emotion_lexicon['anger']:
                     concept = '气死了'
-                elif w in concept_dict:
-                    concept = concept_dict[w]
+                #elif w in concept_dict:
+                    #concept = concept_dict[w]
+                else:
+                    concept = w
 
                 if concept in concept_vector:
                     concept_vector[concept].append(index)  # record the sentence id where each concept occurs
@@ -155,9 +192,9 @@ def generate_our_summary(filename,scene_sentences,emotion_lexicon,danmu2vec):
                 else:
                     concept_sentence[index] = [concept]
 
-                    # print the concept chains
-                    # for key, value in concept_vector.iteritems():
-                    # print('[' + key.encode('utf-8') + ']' + (' ').join([str(s_id) for s_id in value]))
+    #print the concept chains
+    for key, value in concept_vector.iteritems():
+        print('[' + key.encode('utf-8') + ']' + (' ').join([str(s_id) for s_id in value]))
     # calculate concept importance
     concept_importances = {}
     for key, value in concept_vector.iteritems():
@@ -166,7 +203,7 @@ def generate_our_summary(filename,scene_sentences,emotion_lexicon,danmu2vec):
         concept_importances[key] = concept_importance
     sorted_concept_importances = sorted(concept_importances.items(), key=operator.itemgetter(1), reverse=True)
 
-    print('----------summary---------------')
+    print('===========Our method============')
 
     # use previous sentence set subtract later sentence set of concept
     valid_concepts = []
@@ -189,27 +226,172 @@ def generate_our_summary(filename,scene_sentences,emotion_lexicon,danmu2vec):
 
             for c in list(set(concept_sentence[s_id])):
                 # print(concept_sentence[s_id])
-                # if c in danmu2vec.wv.vocab:
-                # concept_idf = math.log(danmu2vec.wv.vocab[c.decode('utf-8')].count)
-                # else:
-                # concept_idf = math.log(avg_frequency)
-                # score = score + len(list(set(concept_vector[c]))) * concept_idf
-                score = score + len(list(set(concept_vector[c])))
+                if c in danmu2vec.wv.vocab:
+                    concept_idf = math.log(danmu2vec.wv.vocab[c.decode('utf-8')].count)
+                else:
+                    concept_idf = math.log(600)
+                score = score + len(list(set(concept_vector[c]))) * concept_idf
+                #score = score + len(list(set(concept_vector[c])))
 
             # score is the total score excluding the key concept, and use 1 as a low estimate
             sentence_scores[s_id] = score / len(list(set(concept_sentence[s_id])))
-            # sentence_scores[s_id] = score
+            #sentence_scores[s_id] = score
         sentence_scores = sorted(sentence_scores.items(), key=operator.itemgetter(1), reverse=True)
         best_s_id = sentence_scores[0][0]
         print('[' + concept.encode('utf-8') + '][' + str(best_s_id) + ']' + '][' + str(sentence_scores[0][1]) + ']' +
               scene_sentences[best_s_id][0].replace(' ', '').encode('utf-8'))
         # if index / len(valid_concepts) >= compression_rate:
-        if index == 3:
+        if index == 9:
             break
-def generate_benchmark_summary():
-    a= 1
+def word_2_concept(w,emotion_lexicon,concept_dict):
+    if w in emotion_lexicon['happy']:
+        concept = '哈哈'
+    elif w in emotion_lexicon['surprise']:
+        concept = '卧槽'
+    elif w in emotion_lexicon['fear']:
+        concept = '可怕'
+    elif w in emotion_lexicon['sad']:
+        concept = '泪目'
+    elif w in emotion_lexicon['anger']:
+        concept = '气死了'
+    #elif w in concept_dict:
+        #concept = concept_dict[w]
+    else:
+        concept = w
+    return concept
+
+def purity_words(words):
+    words = [re.sub(r'(.)\1+', r'\1\1', w) for w in words]  # handle 23333, 6666
+    words = [re.sub(r'(哈)\1+', r'\1\1', w) for w in words]  # handle repetition
+    words = [re.sub(r'(啊)\1+', r'\1\1', w) for w in words]  # handle repetition
+    words = [re.sub(ur"[\s+\.\!\/_,$%^*(+\"\']+|[+——！，.。？?、~@#￥%……&*（）:：；《）《》“”()»〔〕-]+", "", w.decode("utf8")) for w in
+             words]
+    words = [w for w in words if not w in stop_words]
+    return words
+
+def generate_embedding_lexical_chain_summary(filename,scene_sentences,emotion_lexicon,num_summary):
+    concept_dict = load_obj(filename.split('_')[0] + '_concept_dict')
+    print('===========Our method============')
+    # get the overal number of tokens in the scene
+    word_length = 0
+    for index, s in enumerate(scene_sentences):
+        # pre-processing
+        s[0] = s[0].replace('.','')
+        words = s[0].split()
+        words = purity_words(words)
+        word_length += len(words)
+    # count concept (word) occurrence
+    word_dict = {}
+    for index, s in enumerate(scene_sentences):
+        words = s[0].split()
+        words = purity_words(words)
+        for w in sorted(words):  # for each word
+            # print(w.encode('utf-8'))
+            if w.isdigit() and (is_date(w) or not ('233' in w or '66' in w)):
+                break
+            if w:  # save scene info into concept_vector and concept_scene
+                concept = word_2_concept(w, emotion_lexicon,concept_dict)
+
+                if concept in word_dict:
+                    word_dict[concept.decode('utf-8')] += 1
+                else:
+                    word_dict[concept.decode('utf-8')] = 1
+    # scale word occurrence to [0,1]
+    for key, value in word_dict.iteritems():
+        word_dict[key] = value / word_length
+
+    #for key, value in word_dict.iteritems():
+        #print(key.encode('utf-8') + ':' + str(value))
+    count = 0
+    #num_summary = 8
+    while count < num_summary:
+        # calcualte sentence score
+        sentence_scores = []
+        for index, s in enumerate(scene_sentences):
+            sentence_probabilities = []
+            words = s[0].split()
+            words = purity_words(words)
+            for w in sorted(words):  # for each word
+                # print(w.encode('utf-8'))
+                if w.isdigit() and (is_date(w) or not ('233' in w or '66' in w)):
+                    break
+                if w:  # save scene info into concept_vector and concept_scene
+                    concept = word_2_concept(w, emotion_lexicon,concept_dict)
+                    sentence_probabilities.append(word_dict[concept.decode('utf-8')])
+                    #print(concept.encode('utf-8') + str(word_dict[concept]))
+            if len(sentence_probabilities):
+                sentence_scores.append(sum(sentence_probabilities) / len(sentence_probabilities))
+            else:
+                sentence_scores.append(0)
+            #print(sentence_probabilities)
+
+        max_s_id, max_score = max(enumerate(sentence_scores), key=operator.itemgetter(1))
+        print('[' + str(max_score) + ']' + scene_sentences[max_s_id][0].encode('utf-8'))
+        words = scene_sentences[max_s_id][0].split()
+        words = purity_words(words)
+        for w in sorted(words):  # for each word
+            # print(w.encode('utf-8'))
+            if w.isdigit() and (is_date(w) or not ('233' in w or '66' in w)):
+                break
+            if w:  # save scene info into concept_vector and concept_scene
+                concept = word_2_concept(w, emotion_lexicon,concept_dict)
+                word_dict[concept.decode('utf-8')] = -0.5
+                #print(concept.encode('utf-8') + str( word_dict[concept.decode('utf-8')]))
+
+        #for key,value in word_dict.iteritems():
+            #print(key.encode('utf-8') + ':'+ str(value))
+        scene_sentences.pop(max_s_id)
+        count += 1
+
+
+
+def calculate_ROGUE_1():
+    A = 1
+    # TODO: read golden standard data
+
+def calcualte_ROGUE_2():
+    A = 1
+
+
+
+
+
+def generate_benchmark_summary(filename,num_summary):
+
+    parser = PlaintextParser.from_file('data/text_summary/' + filename + '.txt', Tokenizer("english"))
+    print('=========== Basic Sum ============')
+    summarizer = SumBasicSummarizer()
+    summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
+    for sentence in summary:
+        print sentence
+
+    print('=========== LSA ============')
+    summarizer = LsaSummarizer()
+    summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
+    for sentence in summary:
+        print sentence
+
+    print('===========LexRank============')
+    summarizer = LexRankSummarizer()
+    summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
+    for sentence in summary:
+        print sentence
+
+    print('===========KL Divergence============')
+    summarizer = KLSummarizer()
+    summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
+    for sentence in summary:
+        print sentence
+
+    print('===========Luhn============')
+    summarizer = LuhnSummarizer()
+    summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
+    for sentence in summary:
+        print sentence
 if __name__ == "__main__":
     scene_dir = 'data/text_summary/'
     danmu2vec = read_word_embeddings()
     emotion_lexicon = read_emotion_lexicon()
-    read_scene_data(scene_dir,emotion_lexicon,danmu2vec)
+    #read_scene_data(scene_dir,emotion_lexicon,danmu2vec)
+    file_name = 'data/summary_golden_standard/summary.csv'
+    generate_evaluation(file_name, emotion_lexicon)
