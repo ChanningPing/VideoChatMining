@@ -8,6 +8,7 @@ import pickle
 import gensim.models.word2vec as w2v
 from dateutil.parser import parse
 import operator
+import numpy as np
 
 from sumy.parsers.plaintext import PlaintextParser #We're choosing a plaintext parser here, other parsers available for HTML etc.
 from sumy.nlp.tokenizers import Tokenizer
@@ -124,7 +125,7 @@ def read_scene_data(scene_dir,emotion_lexicon,danmu2vec):
             generate_embedding_lexical_chain_summary(filename, scene_sentences, emotion_lexicon)
             generate_benchmark_summary(filename)
 
-def generate_evaluation(file_name, emotion_lexicon):
+def generate_exact_evaluation(file_name, emotion_lexicon):
     scene_summary_dict = {}
     scene_dir = 'data/text_summary/'
     with open(file_name, "rb") as f:
@@ -135,6 +136,7 @@ def generate_evaluation(file_name, emotion_lexicon):
             else:
 
                 scene_summary_dict[line[0]] = [line[1]]
+    ROGUE_1_scores = []
     for movie_scene, reference_sentences in scene_summary_dict.iteritems():
         print('=================' + movie_scene + '===================')
         with open(os.path.join(scene_dir, movie_scene + '.txt')) as csvfile:  # read a scene
@@ -144,6 +146,54 @@ def generate_evaluation(file_name, emotion_lexicon):
             candidate_sentences = generate_embedding_lexical_chain_summary(movie_scene, scene_sentences, emotion_lexicon,num_summary)
             Basic_Sum_sentences, LSA_sentences, LexRank_sentences, KL_sentences, Luhn_sentences = generate_benchmark_summary(movie_scene,num_summary)
             #TODO: compare reference_sentences with candidate sentences and benchmarks for ROGUE-1,-2
+            candidate = (' ').join([c_s for c_s in candidate_sentences] )
+            basic_sum = (' ').join([c_s for c_s in Basic_Sum_sentences])
+            LSA = (' ').join([c_s for c_s in LSA_sentences])
+            LexRank = (' ').join([c_s for c_s in LexRank_sentences])
+            KL = (' ').join([c_s for c_s in KL_sentences])
+            Luhn = (' ').join([c_s for c_s in Luhn_sentences])
+            ROGUE_1_candidate = 0
+            ROGUE_1_basic_sum = 0
+            ROGUE_1_LSA = 0
+            ROGUE_1_LexRank = 0
+            ROGUE_1_KL= 0
+            ROGUE_1_Luhn = 0
+            reference_length = 0
+            for r_s in reference_sentences:
+                r_s = r_s.replace('.','')
+                words = r_s.split()
+                for w in words:
+                    #print(w.encode('utf-8'))
+                    reference_length += 1
+                    if w in candidate:
+                        ROGUE_1_candidate += 1
+                    if w in basic_sum:
+                        ROGUE_1_basic_sum += 1
+                    if w in LSA:
+                        ROGUE_1_LSA += 1
+                    if w in LexRank:
+                        ROGUE_1_LexRank += 1
+                    if w in KL:
+                        ROGUE_1_KL += 1
+                    if w in Luhn:
+                        ROGUE_1_Luhn += 1
+
+            print('[ROGUE-1 Candidate]=' + str(ROGUE_1_candidate / reference_length))
+            print('[ROGUE-1 basic_sum]=' + str(ROGUE_1_basic_sum / reference_length))
+            print('[ROGUE-1 LSA]=' + str(ROGUE_1_LSA / reference_length))
+            print('[ROGUE-1 LexRank]=' + str(ROGUE_1_LexRank / reference_length))
+            print('[ROGUE-1 KL]=' + str(ROGUE_1_KL / reference_length))
+            print('[ROGUE-1 Luhn]=' + str(ROGUE_1_Luhn / reference_length))
+            ROGUE_1_scores.append([ROGUE_1_candidate / reference_length,
+                                   ROGUE_1_basic_sum / reference_length,
+                                   ROGUE_1_LSA / reference_length,
+                                   ROGUE_1_LexRank / reference_length,
+                                   ROGUE_1_KL / reference_length,
+                                   ROGUE_1_Luhn / reference_length])
+        average_ROGUE_1_scores = np.array(ROGUE_1_scores)
+        print('candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
+        print(average_ROGUE_1_scores.mean(axis=0))
+
 
 
 
@@ -321,7 +371,8 @@ def generate_embedding_lexical_chain_summary(filename,scene_sentences,emotion_le
                     sentence_probabilities.append(word_dict[concept.decode('utf-8')])
                     #print(concept.encode('utf-8') + str(word_dict[concept]))
             if len(sentence_probabilities):
-                sentence_scores.append(sum(sentence_probabilities) / len(sentence_probabilities))
+                #sentence_scores.append(sum(sentence_probabilities) / len(sentence_probabilities))
+                sentence_scores.append(sum(sentence_probabilities) )
             else:
                 sentence_scores.append(0)
             #print(sentence_probabilities)
@@ -339,7 +390,7 @@ def generate_embedding_lexical_chain_summary(filename,scene_sentences,emotion_le
                 break
             if w:  # save scene info into concept_vector and concept_scene
                 concept = word_2_concept(w, emotion_lexicon,concept_dict)
-                word_dict[concept.decode('utf-8')] = -0.5
+                word_dict[concept.decode('utf-8')] = word_dict[concept.decode('utf-8')]*word_dict[concept.decode('utf-8')]
                 #print(concept.encode('utf-8') + str( word_dict[concept.decode('utf-8')]))
 
         #for key,value in word_dict.iteritems():
@@ -371,7 +422,7 @@ def generate_benchmark_summary(filename,num_summary):
     summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
     for sentence in summary:
         print sentence
-        Basic_Sum_sentences.append(sentence)
+        Basic_Sum_sentences.append(str(sentence))
 
     print('=========== LSA ============')
     LSA_sentences = []
@@ -380,7 +431,7 @@ def generate_benchmark_summary(filename,num_summary):
     summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
     for sentence in summary:
         print sentence
-        LSA_sentences.append(sentence)
+        LSA_sentences.append(str(sentence))
 
     print('===========LexRank============')
     LexRank_sentences = []
@@ -388,7 +439,7 @@ def generate_benchmark_summary(filename,num_summary):
     summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
     for sentence in summary:
         print sentence
-        LexRank_sentences.append(sentence)
+        LexRank_sentences.append(str(sentence))
 
     print('===========KL Divergence============')
     KL_sentences = []
@@ -396,7 +447,7 @@ def generate_benchmark_summary(filename,num_summary):
     summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
     for sentence in summary:
         print sentence
-        KL_sentences.append(sentence)
+        KL_sentences.append(str(sentence))
 
     print('===========Luhn============')
     Luhn_sentences = []
@@ -404,7 +455,7 @@ def generate_benchmark_summary(filename,num_summary):
     summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
     for sentence in summary:
         print sentence
-        Luhn_sentences.append(sentence)
+        Luhn_sentences.append(str(sentence))
 
     return Basic_Sum_sentences,LSA_sentences,LexRank_sentences,KL_sentences,Luhn_sentences
 if __name__ == "__main__":
@@ -412,5 +463,5 @@ if __name__ == "__main__":
     danmu2vec = read_word_embeddings()
     emotion_lexicon = read_emotion_lexicon()
     #read_scene_data(scene_dir,emotion_lexicon,danmu2vec)
-    file_name = 'data/summary_golden_standard/summary.csv'
-    generate_evaluation(file_name, emotion_lexicon)
+    file_name = 'data/summary_golden_standard/summary_3.csv'
+    generate_exact_evaluation(file_name, emotion_lexicon)
