@@ -135,15 +135,15 @@ def generate_evaluation(file_name, emotion_lexicon):
             else:
 
                 scene_summary_dict[line[0]] = [line[1]]
-    for movie_scene, sentences in scene_summary_dict.iteritems():
+    for movie_scene, reference_sentences in scene_summary_dict.iteritems():
         print('=================' + movie_scene + '===================')
         with open(os.path.join(scene_dir, movie_scene + '.txt')) as csvfile:  # read a scene
             scene_sentences = list(csv.reader(csvfile))
             #generate_our_summary(filename, scene_sentences, emotion_lexicon, danmu2vec)
-            num_summary = len(sentences)
-            generate_embedding_lexical_chain_summary(movie_scene, scene_sentences, emotion_lexicon,num_summary)
-            generate_benchmark_summary(movie_scene,num_summary)
-
+            num_summary = len(reference_sentences)
+            candidate_sentences = generate_embedding_lexical_chain_summary(movie_scene, scene_sentences, emotion_lexicon,num_summary)
+            Basic_Sum_sentences, LSA_sentences, LexRank_sentences, KL_sentences, Luhn_sentences = generate_benchmark_summary(movie_scene,num_summary)
+            #TODO: compare reference_sentences with candidate sentences and benchmarks for ROGUE-1,-2
 
 
 
@@ -271,6 +271,7 @@ def purity_words(words):
 
 def generate_embedding_lexical_chain_summary(filename,scene_sentences,emotion_lexicon,num_summary):
     concept_dict = load_obj(filename.split('_')[0] + '_concept_dict')
+    candidate_sentences = []
     print('===========Our method============')
     # get the overal number of tokens in the scene
     word_length = 0
@@ -327,6 +328,9 @@ def generate_embedding_lexical_chain_summary(filename,scene_sentences,emotion_le
 
         max_s_id, max_score = max(enumerate(sentence_scores), key=operator.itemgetter(1))
         print('[' + str(max_score) + ']' + scene_sentences[max_s_id][0].encode('utf-8'))
+        candidate_sentences.append(scene_sentences[max_s_id][0]) # save the sentence to candidates
+
+        # down weight the words in the chosen sentence
         words = scene_sentences[max_s_id][0].split()
         words = purity_words(words)
         for w in sorted(words):  # for each word
@@ -340,8 +344,10 @@ def generate_embedding_lexical_chain_summary(filename,scene_sentences,emotion_le
 
         #for key,value in word_dict.iteritems():
             #print(key.encode('utf-8') + ':'+ str(value))
+        # remove sentence from sentence pool
         scene_sentences.pop(max_s_id)
         count += 1
+    return candidate_sentences
 
 
 
@@ -360,34 +366,47 @@ def generate_benchmark_summary(filename,num_summary):
 
     parser = PlaintextParser.from_file('data/text_summary/' + filename + '.txt', Tokenizer("english"))
     print('=========== Basic Sum ============')
+    Basic_Sum_sentences = []
     summarizer = SumBasicSummarizer()
     summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
     for sentence in summary:
         print sentence
+        Basic_Sum_sentences.append(sentence)
 
     print('=========== LSA ============')
+    LSA_sentences = []
     summarizer = LsaSummarizer()
+
     summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
     for sentence in summary:
         print sentence
+        LSA_sentences.append(sentence)
 
     print('===========LexRank============')
+    LexRank_sentences = []
     summarizer = LexRankSummarizer()
     summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
     for sentence in summary:
         print sentence
+        LexRank_sentences.append(sentence)
 
     print('===========KL Divergence============')
+    KL_sentences = []
     summarizer = KLSummarizer()
     summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
     for sentence in summary:
         print sentence
+        KL_sentences.append(sentence)
 
     print('===========Luhn============')
+    Luhn_sentences = []
     summarizer = LuhnSummarizer()
     summary = summarizer(parser.document, num_summary)  # Summarize the document with 5 sentences
     for sentence in summary:
         print sentence
+        Luhn_sentences.append(sentence)
+
+    return Basic_Sum_sentences,LSA_sentences,LexRank_sentences,KL_sentences,Luhn_sentences
 if __name__ == "__main__":
     scene_dir = 'data/text_summary/'
     danmu2vec = read_word_embeddings()
