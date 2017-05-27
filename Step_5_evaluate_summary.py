@@ -69,7 +69,7 @@ stop_words = ['啊','吗','，','的','一','不','在','人','有','是','为',
               "哟", "哦", "哩", "矣哉", "矣乎", "矣", "焉", "毋宁", "欤",  "嘻", "嘛", "嘘", "嘎登", "嘎", "嗳", "嗯", "嗬", "嗡嗡",
               "嗡", "喽", "喔唷", "喏", "喂", "啷当", "啪达", "啦", "啥", "啐", "啊", "唉", "哼唷", "哼", "咧", "咦", "咚", "咋", "呼哧", "呸",
               "呵", "呢", "呜呼", "呜", "呗", "呕", "呃", "呀", "吱", "吧哒", "吧", "吗", "吓", "兮", "儿", "亦", "了", "乎"]
-
+emotion_bias = 0.2
 def read_emotion_lexicon():
     emotion_lexicon = {'happy': [], 'surprise': [], 'fear': [], 'sad': [], 'anger': []}
     with open("data/manual corrected expanded 300 each.txt", "rb") as f:
@@ -87,6 +87,12 @@ def read_emotion_lexicon():
             elif line[1]=='5':
                 emotion_lexicon['happy'].append(line[0])
     #print(emotion_lexicon)
+    print('happy='+str(len(emotion_lexicon['happy'])))
+    print('sad=' + str(len(emotion_lexicon['sad'])))
+    print('fear=' + str(len(emotion_lexicon['fear'])))
+    print('anger=' + str(len(emotion_lexicon['anger'])))
+    print('surprise=' + str(len(emotion_lexicon['surprise'])))
+
     return emotion_lexicon
 
 
@@ -137,62 +143,182 @@ def generate_exact_evaluation(file_name, emotion_lexicon):
 
                 scene_summary_dict[line[0]] = [line[1]]
     ROGUE_1_scores = []
+    ROGUE_2_scores = []
+    Precision_1_scores = []
+    Precision_2_scores = []
+    f_1_1_scores = []
+    f_1_2_scores = []
+    total_length_reference = 0
+    total_length_methods = [0]*6
     for movie_scene, reference_sentences in scene_summary_dict.iteritems():
+
+        if not os.path.exists(os.path.join(scene_dir, movie_scene + '.txt')):
+            print(movie_scene + '[not exist]')
+            continue
         print('=================' + movie_scene + '===================')
         with open(os.path.join(scene_dir, movie_scene + '.txt')) as csvfile:  # read a scene
             scene_sentences = list(csv.reader(csvfile))
-            #generate_our_summary(filename, scene_sentences, emotion_lexicon, danmu2vec)
+
             num_summary = len(reference_sentences)
             candidate_sentences = generate_embedding_lexical_chain_summary(movie_scene, scene_sentences, emotion_lexicon,num_summary)
             Basic_Sum_sentences, LSA_sentences, LexRank_sentences, KL_sentences, Luhn_sentences = generate_benchmark_summary(movie_scene,num_summary)
-            #TODO: compare reference_sentences with candidate sentences and benchmarks for ROGUE-1,-2
-            candidate = (' ').join([c_s for c_s in candidate_sentences] )
-            basic_sum = (' ').join([c_s for c_s in Basic_Sum_sentences])
-            LSA = (' ').join([c_s for c_s in LSA_sentences])
-            LexRank = (' ').join([c_s for c_s in LexRank_sentences])
-            KL = (' ').join([c_s for c_s in KL_sentences])
-            Luhn = (' ').join([c_s for c_s in Luhn_sentences])
-            ROGUE_1_candidate = 0
-            ROGUE_1_basic_sum = 0
-            ROGUE_1_LSA = 0
-            ROGUE_1_LexRank = 0
-            ROGUE_1_KL= 0
-            ROGUE_1_Luhn = 0
-            reference_length = 0
-            for r_s in reference_sentences:
-                r_s = r_s.replace('.','')
-                words = r_s.split()
-                for w in words:
-                    #print(w.encode('utf-8'))
-                    reference_length += 1
-                    if w in candidate:
-                        ROGUE_1_candidate += 1
-                    if w in basic_sum:
-                        ROGUE_1_basic_sum += 1
-                    if w in LSA:
-                        ROGUE_1_LSA += 1
-                    if w in LexRank:
-                        ROGUE_1_LexRank += 1
-                    if w in KL:
-                        ROGUE_1_KL += 1
-                    if w in Luhn:
-                        ROGUE_1_Luhn += 1
 
-            print('[ROGUE-1 Candidate]=' + str(ROGUE_1_candidate / reference_length))
-            print('[ROGUE-1 basic_sum]=' + str(ROGUE_1_basic_sum / reference_length))
-            print('[ROGUE-1 LSA]=' + str(ROGUE_1_LSA / reference_length))
-            print('[ROGUE-1 LexRank]=' + str(ROGUE_1_LexRank / reference_length))
-            print('[ROGUE-1 KL]=' + str(ROGUE_1_KL / reference_length))
-            print('[ROGUE-1 Luhn]=' + str(ROGUE_1_Luhn / reference_length))
-            ROGUE_1_scores.append([ROGUE_1_candidate / reference_length,
-                                   ROGUE_1_basic_sum / reference_length,
-                                   ROGUE_1_LSA / reference_length,
-                                   ROGUE_1_LexRank / reference_length,
-                                   ROGUE_1_KL / reference_length,
-                                   ROGUE_1_Luhn / reference_length])
+            # get benchmark data as a string
+            candidate = (' ').join([c_s for c_s in candidate_sentences] ).replace('.','')
+            basic_sum = (' ').join([c_s for c_s in Basic_Sum_sentences]).replace('.','')
+            LSA = (' ').join([c_s for c_s in LSA_sentences]).replace('.','')
+            LexRank = (' ').join([c_s for c_s in LexRank_sentences]).replace('.','')
+            KL = (' ').join([c_s for c_s in KL_sentences]).replace('.','')
+            Luhn = (' ').join([c_s for c_s in Luhn_sentences]).replace('.','')
+            # get golden standard
+            all_reference_as_one = (' ').join([s.replace('.', '') for s in reference_sentences])
+            methods = [candidate, basic_sum, LSA, LexRank, KL, Luhn]
+            # count reference length of whole corpus
+            total_length_reference += len(all_reference_as_one.split())
+            # count method length of whole corpus
+            for index,method in enumerate(methods):
+                total_length_methods[index] += len(method.split())
+
+            # ROGUE-1
+            this_file_ROGUE_1 = [0] * 6
+            this_file_ROGUE_2 = [0] * 6
+
+
+            words = all_reference_as_one.split()
+            for w in words:
+                for index,method in enumerate(methods):
+                    if w in method:
+                        this_file_ROGUE_1[index] += 1
+
+            for index,w in enumerate(words): # calculate ROGUE-2
+                if index + 1<len(words):
+                    pair = w + ' ' + words[index+1]
+                else:
+                    pair = w
+                for index,method in enumerate(methods):
+                    if pair in method:
+                        this_file_ROGUE_2[index] += 1
+            this_file_ROGUE_1 = [count / len(words) for count in this_file_ROGUE_1]
+            this_file_ROGUE_2 = [count / len(words) for count in this_file_ROGUE_2]
+            print('ROGUE-1==========[candidate,basic sum, LSA, LexRank,KL,Luhn]')
+            print(this_file_ROGUE_1)
+            print('ROGUE-2==========[candidate,basic sum, LSA, LexRank,KL,Luhn]')
+            print(this_file_ROGUE_2)
+            ROGUE_1_scores.append(this_file_ROGUE_1)
+            ROGUE_2_scores.append(this_file_ROGUE_2)
+
+
+
+            # ===========below is calculation of precision
+
+            this_file_precision_1 = []
+            this_file_precision_2 = []
+            # precision-1
+
+            #print(all_reference_as_one)
+            for method in methods:
+                all_reference_as_one = (' ').join([s.replace('.', '') for s in reference_sentences])
+                words = method.split()
+                Precision_1 = 0
+                for w in words:
+                    if w in all_reference_as_one:
+                        #print(w)
+                        Precision_1 += 1
+                        all_reference_as_one = all_reference_as_one.replace(w,'')
+                        #print(all_reference_as_one.encode('utf-8'))
+                Precision_1 = Precision_1 / len(words)
+                this_file_precision_1.append(Precision_1)
+
+            # precision-2
+
+            for method in methods:
+                all_reference_as_one = (' ').join([s.replace('.', '') for s in reference_sentences])
+                words = method.split()
+                Precision_2 = 0
+                for index,w in enumerate(words):
+                    if index < len(words) - 1:
+                        pair = w + ' ' + words[index + 1]
+                    else:
+                        pair = w
+                    if pair in all_reference_as_one:
+                        Precision_2 += 1
+                        all_reference_as_one = all_reference_as_one.replace(pair, '')
+                Precision_2 = Precision_2 / len(words)
+                this_file_precision_2.append(Precision_2)
+
+            print('Precision-1==========[candidate,basic sum, LSA, LexRank,KL,Luhn]')
+            print(this_file_precision_1)
+            print('Precision-2==========[candidate,basic sum, LSA, LexRank,KL,Luhn]')
+            print(this_file_precision_2)
+
+            Precision_1_scores.append(this_file_precision_1)
+            Precision_2_scores.append(this_file_precision_2)
+
+
+            method_names = ['candidate','basic sum','LSA','LexRank','KL','Luhn']
+
+            this_file_f_1_1 = []
+            this_file_f_1_2 = []
+            # f-1-1
+            for index,method in enumerate(method_names):
+                if this_file_precision_1[index] + this_file_ROGUE_1[index]:
+                    f_1_1 = 2*this_file_precision_1[index]* this_file_ROGUE_1[index] / (this_file_precision_1[index] + this_file_ROGUE_1[index])
+                else:
+                    f_1_1 = 0
+                this_file_f_1_1.append(f_1_1)
+
+
+            # f-1-2
+            for index, method in enumerate(method_names):
+                if this_file_precision_2[index] + this_file_ROGUE_2[index]:
+                    f_1_2 = 2 * this_file_precision_2[index] * this_file_ROGUE_2[index] / (
+                        this_file_precision_2[index] + this_file_ROGUE_2[index])
+                else:
+                    f_1_2 = 0
+                this_file_f_1_2.append(f_1_2)
+
+            f_1_1_scores.append(this_file_f_1_1)
+            f_1_2_scores.append(this_file_f_1_2)
+
         average_ROGUE_1_scores = np.array(ROGUE_1_scores)
-        print('candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
+        average_ROGUE_2_scores = np.array(ROGUE_2_scores)
+        average_Precision_1_scores = np.array(Precision_1_scores)
+        average_Precision_2_scores = np.array(Precision_2_scores)
+        average_f_1_1_scores = np.array(f_1_1_scores)
+        average_f_1_2_scores = np.array(f_1_2_scores)
+
+        print('ROGUE-1=================candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
         print(average_ROGUE_1_scores.mean(axis=0))
+        print('ROGUE-2=================candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
+        print(average_ROGUE_2_scores.mean(axis=0))
+        print('Precision-1=================candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
+        print(average_Precision_1_scores.mean(axis=0))
+        print('Precisio-2=================candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
+        print(average_Precision_2_scores.mean(axis=0))
+        print('F-1-1=================candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
+        print(average_f_1_1_scores.mean(axis=0))
+        print('F-1-2=================candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
+        print(average_f_1_2_scores.mean(axis=0))
+
+    print('final results*******************')
+    print('ROGUE-1=================candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
+    print(average_ROGUE_1_scores.mean(axis=0))
+    print('ROGUE-2=================candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
+    print(average_ROGUE_2_scores.mean(axis=0))
+
+    average_Precision_1_scores = list(average_Precision_1_scores.mean(axis=0))
+    for index,p1 in enumerate(average_Precision_1_scores):
+        if total_length_reference > total_length_methods[index]:
+            average_Precision_1_scores[index] *= math.exp(1-total_length_reference/total_length_methods[index])
+    print('Precision-1=================candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
+    print(average_Precision_1_scores)
+
+    average_Precision_2_scores = list(average_Precision_2_scores.mean(axis=0))
+    for index, p2 in enumerate(average_Precision_2_scores):
+        if total_length_reference > total_length_methods[index]:
+            average_Precision_2_scores[index] *= math.exp(1 - total_length_reference / total_length_methods[index])
+    print('Precision-2=================candidate,basic_sum,LSA,LexRank,KL,Luhn\n')
+    print(average_Precision_2_scores)
 
 
 
@@ -294,21 +420,27 @@ def generate_our_summary(filename,scene_sentences,emotion_lexicon,danmu2vec):
         if index == 9:
             break
 def word_2_concept(w,emotion_lexicon,concept_dict):
+    weight = 1
     if w in emotion_lexicon['happy']:
         concept = '哈哈'
+        weight = 1 + emotion_bias
     elif w in emotion_lexicon['surprise']:
         concept = '卧槽'
+        weight = 1+ emotion_bias
     elif w in emotion_lexicon['fear']:
         concept = '可怕'
+        weight = 1+ emotion_bias
     elif w in emotion_lexicon['sad']:
         concept = '泪目'
+        weight = 1+ emotion_bias
     elif w in emotion_lexicon['anger']:
         concept = '气死了'
-    #elif w in concept_dict:
-        #concept = concept_dict[w]
+        weight = 1+ emotion_bias
+    elif w in concept_dict:
+        concept = concept_dict[w]
     else:
         concept = w
-    return concept
+    return concept,weight
 
 def purity_words(words):
     words = [re.sub(r'(.)\1+', r'\1\1', w) for w in words]  # handle 23333, 6666
@@ -332,7 +464,8 @@ def generate_embedding_lexical_chain_summary(filename,scene_sentences,emotion_le
         words = purity_words(words)
         word_length += len(words)
     # count concept (word) occurrence
-    word_dict = {}
+    word_counts = {}
+    concept_counts = {}
     for index, s in enumerate(scene_sentences):
         words = s[0].split()
         words = purity_words(words)
@@ -341,15 +474,26 @@ def generate_embedding_lexical_chain_summary(filename,scene_sentences,emotion_le
             if w.isdigit() and (is_date(w) or not ('233' in w or '66' in w)):
                 break
             if w:  # save scene info into concept_vector and concept_scene
-                concept = word_2_concept(w, emotion_lexicon,concept_dict)
+                concept,weight = word_2_concept(w, emotion_lexicon,concept_dict)
 
-                if concept in word_dict:
-                    word_dict[concept.decode('utf-8')] += 1
+                if concept in concept_counts:
+                    concept_counts[concept.decode('utf-8')] += 1*weight
                 else:
-                    word_dict[concept.decode('utf-8')] = 1
+                    concept_counts[concept.decode('utf-8')] = 1*weight
+
+                if w in word_counts:
+                    word_counts[w.decode('utf-8')] += 1 * weight
+                else:
+                    word_counts[w.decode('utf-8')] = 1 * weight
+
     # scale word occurrence to [0,1]
-    for key, value in word_dict.iteritems():
-        word_dict[key] = value / word_length
+    for key, value in concept_counts.iteritems():
+        concept_counts[key] = value / word_length
+        #concept_counts[key] = value / sum(concept_counts.values())
+
+    for key, value in word_counts.iteritems():
+        word_counts[key] = value / word_length
+        #word_counts[key] = value / sum(word_counts.values())
 
     #for key, value in word_dict.iteritems():
         #print(key.encode('utf-8') + ':' + str(value))
@@ -367,14 +511,14 @@ def generate_embedding_lexical_chain_summary(filename,scene_sentences,emotion_le
                 if w.isdigit() and (is_date(w) or not ('233' in w or '66' in w)):
                     break
                 if w:  # save scene info into concept_vector and concept_scene
-                    concept = word_2_concept(w, emotion_lexicon,concept_dict)
-                    sentence_probabilities.append(word_dict[concept.decode('utf-8')])
+                    concept,weight = word_2_concept(w, emotion_lexicon,concept_dict)
+                    sentence_probabilities.append(concept_counts[concept.decode('utf-8')]*word_counts[w.decode('utf-8')])
                     #print(concept.encode('utf-8') + str(word_dict[concept]))
             if len(sentence_probabilities):
                 #sentence_scores.append(sum(sentence_probabilities) / len(sentence_probabilities))
                 sentence_scores.append(sum(sentence_probabilities) )
             else:
-                sentence_scores.append(0)
+                sentence_scores.append(sum(sentence_probabilities))
             #print(sentence_probabilities)
 
         max_s_id, max_score = max(enumerate(sentence_scores), key=operator.itemgetter(1))
@@ -389,8 +533,12 @@ def generate_embedding_lexical_chain_summary(filename,scene_sentences,emotion_le
             if w.isdigit() and (is_date(w) or not ('233' in w or '66' in w)):
                 break
             if w:  # save scene info into concept_vector and concept_scene
-                concept = word_2_concept(w, emotion_lexicon,concept_dict)
-                word_dict[concept.decode('utf-8')] = word_dict[concept.decode('utf-8')]*word_dict[concept.decode('utf-8')]
+                concept,weight = word_2_concept(w, emotion_lexicon,concept_dict)
+                #word_dict[concept.decode('utf-8')] = word_dict[concept.decode('utf-8')]*word_dict[concept.decode('utf-8')]
+                concept_counts[concept.decode('utf-8')] = concept_counts[concept.decode('utf-8')] * concept_counts[
+                    concept.decode('utf-8')]
+                #word_counts[concept.decode('utf-8')] = word_counts[w.decode('utf-8')] * word_counts[
+                    #w.decode('utf-8')]
                 #print(concept.encode('utf-8') + str( word_dict[concept.decode('utf-8')]))
 
         #for key,value in word_dict.iteritems():

@@ -64,3 +64,12 @@ summary = summarizer(parser.document, 3) #Summarize the document with 5 sentence
 for sentence in summary:
     print sentence
 
+s = '哈哈哈哈我就知道，简直是太出乎意料了，猝不及防'
+words = list(jieba.cut(s.strip()))  # cut comment into words
+sorted_words = sorted(words)
+print(words)
+
+for w in sorted_words:
+    print(w.encode('utf-8'))
+print((' ').join([word.encode('utf-8') for word in words]) + ' .')
+

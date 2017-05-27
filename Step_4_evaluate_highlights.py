@@ -12,13 +12,14 @@ from operator import itemgetter
 
 
 def read_data(candidate_dir, reference_dir):
+    time_sum = 0
+    count = 0
     test_data = {}  # {movie_title: {candidate:[],reference:[]}}
     for filename in os.listdir(reference_dir):
         print(filename) # print movie name
         candidate = []
         reference = []
-        time_sum = 0
-        count = 0
+
         with open(os.path.join(reference_dir, filename)) as csvfile:  # read a candidate
             highlights = csv.reader(csvfile, delimiter=',')
             for h in highlights:
@@ -51,7 +52,9 @@ def read_data(candidate_dir, reference_dir):
         pair_data['candidate'] = candidate
         pair_data['time_sum'] = time_sum
         test_data[filename] = pair_data
-    #print(test_data)
+    print('total_length_shots='+str(time_sum))
+    print('total_num_shots=' + str(count))
+
     return test_data
 
 def generate_uniform_data(test_data, scene_length,movie_boundary):
@@ -163,6 +166,7 @@ def generate_spike_data(test_data, scene_length):
 def calculate_ROGUE_1(test_data,transition_length):
     recalls = []
     precisions = []
+    f_1s = []
     for key, value in test_data.iteritems():
         print('=============the movie is: ' + key)
 
@@ -194,14 +198,15 @@ def calculate_ROGUE_1(test_data,transition_length):
         precision = 0
         reference = value['reference']
         candidate = value['candidate']
-        for ref in reference:
-            for cand in candidate:
+        for cand in candidate:
+            for ref in reference:
                 ref_start = ref[0] - transition_length
                 ref_end = ref[1] + transition_length
                 # overlap = max(0, min(ref[1], cand[1]) - max(ref[0], cand[0]) + 1)
                 overlap = max(0, min(ref_end, cand[1]) - max(ref_start, cand[0]) + 1)
                 if overlap > 0:
                     precision = precision + 1
+                    break
                     #if overlap == (cand[1] - cand[0] + 1):
                         #candidate.remove(cand)
         print('match count=' + str(precision))
@@ -209,6 +214,13 @@ def calculate_ROGUE_1(test_data,transition_length):
         precision = precision / len(value['candidate'])
         precisions.append(precision)
         print('[precision]=' + str(precision))
+
+        if precision+ROGUE_1:
+            f_1 =2*precision*ROGUE_1/(precision+ROGUE_1)
+        else:
+            f_1 = 0
+        f_1s.append(f_1)
+        print('[F-1 measure]='+str(f_1))
 
 
         # calculate F-measure
@@ -232,9 +244,12 @@ def calculate_ROGUE_1(test_data,transition_length):
         distance_avg = sum(distance_sum) / (len(distance_sum))
         print('[average distance]=' + str(distance_avg))
 
+
+
     avg_recall = sum(recalls) / len(recalls)
     avg_precision = sum(precisions) / len(precisions)
-    print('[average recall]='+str(avg_recall)+'[average precision]=' + str(avg_precision))
+    avg_f_1 = sum(f_1s) / len(f_1s)
+    print('[average recall]='+str(avg_recall)+'[average precision]=' + str(avg_precision)+'[f-1 measure]='+str(avg_f_1))
 
 
 
@@ -244,20 +259,20 @@ def plot_overlap(test_data,spike_data):
     import matplotlib.pyplot as plt
     for key,value in test_data.iteritems():
         fig, ax = plt.subplots()
-        fig.suptitle(key, fontsize=50)  # Add the text/suptitle to figure
+        fig.suptitle(key, fontsize=10)  # Add the text/suptitle to figure
         reference = [[start,(end-start)] for [start,end] in sorted(value['reference'], key=itemgetter(0))]
         candidate = [[start,(end-start)] for [start,end] in sorted(value['candidate'], key=itemgetter(0))]
         spike = [[start, (end - start)] for [start, end] in sorted(spike_data[key]['candidate'], key=itemgetter(0))]
 
 
-        ax.broken_barh(reference, (10, 4), facecolors='skyblue')
-        ax.broken_barh(candidate, (20, 4), facecolors=('pink'))
-        ax.broken_barh(spike, (30, 4), facecolors=('lightgreen'))
-        ax.set_ylim(0, 40)
+        ax.broken_barh(reference, (0, 4), facecolors='skyblue')
+        ax.broken_barh(candidate, (10, 4), facecolors=('pink'))
+        ax.broken_barh(spike, (20, 4), facecolors=('lightgreen'))
+        ax.set_ylim(0, 30)
         ax.set_xlim(0, 10000)
         ax.set_xlabel('seconds since start')
-        ax.set_yticks([10, 20, 30])
-        ax.set_yticklabels(['Reference', 'Candidate','Spike'])
+        ax.set_yticks([0, 10, 20])
+        ax.set_yticklabels(['Reference', 'LCEC-HD','Spike-selection'])
         ax.grid(True)
 
 
