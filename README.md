@@ -30,7 +30,7 @@ Each line represents an emotion word in Simplified Chinese, and its correspondin
 
 ### Original danmu of 11 videos
 
-Please cite the paper above when you use this dataset in your work. This [original danmu data](https://drive.google.com/open?id=0ByRn2qS9cc0-dTRqQUw3M1lZeGc) contains 75,653 danmu comments for 11 long videos. 
+Please cite the paper above when you use this dataset in your work. This [original danmu data](https://drive.google.com/open?id=0ByRn2qS9cc0-UDJ1Y2gzcm9IYlE) contains 75,653 danmu comments for 11 long videos. 
 The data format is as follows:
 ```
 10176.700195312,2015-11-20 12:20:18,71d7ebfc,1,25,16777215,0,1358260775,想知道片尾音乐的名字
